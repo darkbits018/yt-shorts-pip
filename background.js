@@ -1,34 +1,41 @@
 let youtubeShortsTabId = null;
 
-// Monitor when the tab is updated or activated
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (tab.url && /https:\/\/www\.youtube\.com\/shorts\//.test(tab.url)) {
-        youtubeShortsTabId = tabId;
-    }
-});
-
-chrome.tabs.onActivated.addListener((activeInfo) => {
-    // If the active tab is a YouTube Shorts page, store its tab ID
-    chrome.tabs.get(activeInfo.tabId, (tab) => {
-        if (tab.url && /https:\/\/www\.youtube\.com\/shorts\//.test(tab.url)) {
-            youtubeShortsTabId = tab.id;
+// Function to find and set an active YouTube Shorts tab
+function findActiveShortsTab(callback) {
+    chrome.tabs.query({ url: "*://www.youtube.com/shorts/*" }, (tabs) => {
+        if (tabs.length > 0) {
+            youtubeShortsTabId = tabs[0].id;
+            callback(youtubeShortsTabId);
+        } else {
+            youtubeShortsTabId = null;
+            callback(null);
         }
     });
-});
+}
 
 // Listen for actions from the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (youtubeShortsTabId !== null) {
-        executeActionOnShortsPage(request.action);
-    }
+    findActiveShortsTab((tabId) => {
+        if (tabId) {
+            executeActionOnShortsPage(request.action, tabId);
+            sendResponse({ success: true });
+        } else {
+            sendResponse({ success: false, message: "No active YouTube Shorts tab found." });
+        }
+    });
+    return true; // Indicates asynchronous response
 });
 
-// Execute action on the YouTube Shorts page
-function executeActionOnShortsPage(action) {
+// Execute action on the Shorts page
+function executeActionOnShortsPage(action, tabId) {
     chrome.scripting.executeScript({
-        target: { tabId: youtubeShortsTabId },
+        target: { tabId: tabId },
         func: controlYouTubeAction,
         args: [action]
+    }, () => {
+        if (chrome.runtime.lastError) {
+            console.error("Failed to execute action:", chrome.runtime.lastError.message);
+        }
     });
 }
 
@@ -62,7 +69,7 @@ function controlYouTubeAction(action) {
                 code: 'ArrowUp',
                 which: 38
             });
-            document.dispatchEvent(upArrowEvent); // Dispatch the event
+            document.dispatchEvent(upArrowEvent);
             break;
         case "next":
             // Simulate Down Arrow Key (Next Short)
@@ -72,7 +79,7 @@ function controlYouTubeAction(action) {
                 code: 'ArrowDown',
                 which: 40
             });
-            document.dispatchEvent(downArrowEvent); // Dispatch the event
+            document.dispatchEvent(downArrowEvent);
             break;
         default:
             console.log("Unknown action:", action);
